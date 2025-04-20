@@ -101,7 +101,15 @@ public class IncrementalRestoreTest {
         verifier.setAutoclean(false);
         verifier.setMavenDebug(true);
 
-        // First build, nothing in cache
+        testInitialPackageBuild(verifier);
+        testCachedPackageBuild(verifier);
+        testVerifyGoal(verifier);
+        testInstallGoal(verifier);
+        testDeployGoal(verifier);
+        testReplayInstall(verifier);
+    }
+
+    private void testInitialPackageBuild(Verifier verifier) throws VerificationException, IOException {
         verifier.setLogFileName("../log-package.txt");
         verifier.executeGoal("package");
         verifier.verifyErrorFreeLog();
@@ -114,15 +122,84 @@ public class IncrementalRestoreTest {
         verifier.verifyTextInLog(JAR_DEFAULT_JAR_MBUILDCACHE_INCREMENTAL);
         verifier.verifyTextInLog(SAVED_BUILD_TO_LOCAL_FILE);
         verifier.verifyFilePresent(GENERATED_JAR);
+        verifyAllResourcesPresent(verifier);
+        verifyCacheFilesAfterPackage(verifier);
+    }
 
-        // First build : all resources are present in the target folder
+    private void testCachedPackageBuild(Verifier verifier) throws VerificationException, IOException {
+        cleanAndExecuteGoal(verifier, "../log-clean.txt", "clean");
+
+        verifier.setLogFileName("../log-package-2.txt");
+        verifier.executeGoal("package");
+        verifier.verifyTextInLog(
+                FOUND_CACHED_BUILD_RESTORING_ORG_APACHE_MAVEN_CACHING_TEST_MBUILDCACHE_INCREMENTAL_FROM_CACHE_BY_CHECKSUM);
+        verifier.verifyTextInLog(
+                "Found cached build, restoring org.apache.maven.caching.test:mbuildcache-incremental from cache by checksum");
+        verifier.verifyErrorFreeLog();
+        verifyCachedPackageExecution(verifier);
+        verifyCachedResources(verifier);
+    }
+
+    private void testVerifyGoal(Verifier verifier) throws VerificationException, IOException {
+        cleanAndExecuteGoal(verifier, "../log-clean.txt", "clean");
+
+        verifier.setLogFileName("../log-verify.txt");
+        verifier.executeGoal("verify");
+        verifier.verifyTextInLog(
+                FOUND_CACHED_BUILD_RESTORING_ORG_APACHE_MAVEN_CACHING_TEST_MBUILDCACHE_INCREMENTAL_FROM_CACHE_BY_CHECKSUM);
+        verifier.verifyTextInLog(
+                "Project org.apache.maven.caching.test:mbuildcache-incremental restored partially. Highest cached goal: package, requested: verify");
+        verifier.verifyErrorFreeLog();
+        verifyCachedVerifyExecution(verifier);
+        verifyCachedResources(verifier);
+    }
+
+    private void testInstallGoal(Verifier verifier) throws VerificationException, IOException {
+        cleanAndExecuteGoal(verifier, "../log-clean.txt", "clean");
+
+        verifier.setLogFileName("../log-install.txt");
+        verifier.executeGoal("install");
+        verifier.verifyErrorFreeLog();
+        verifier.verifyTextInLog(
+                "Project org.apache.maven.caching.test:mbuildcache-incremental restored partially. Highest cached goal: verify, requested: install");
+        verifyCachedInstallExecution(verifier);
+        verifyCachedResources(verifier);
+    }
+
+    private void testDeployGoal(Verifier verifier) throws VerificationException, IOException {
+        cleanAndExecuteGoal(verifier, "../log-clean.txt", "clean");
+
+        verifier.setLogFileName("../log-deploy.txt");
+        verifier.executeGoal("deploy");
+        verifier.verifyErrorFreeLog();
+        verifier.verifyTextInLog(
+                "Project org.apache.maven.caching.test:mbuildcache-incremental restored partially. Highest cached goal: install, requested: deploy");
+        verifyCachedDeployExecution(verifier);
+        verifyCachedResources(verifier);
+        verifyAllArtifactsPresent(verifier);
+    }
+
+    private void testReplayInstall(Verifier verifier) throws VerificationException, IOException {
+        verifier.setLogFileName("../log-install-replay.txt");
+        verifier.executeGoal("install");
+        verifier.verifyErrorFreeLog();
+        verifier.verifyTextInLog(
+                FOUND_CACHED_BUILD_RESTORING_ORG_APACHE_MAVEN_CACHING_TEST_MBUILDCACHE_INCREMENTAL_FROM_CACHE_BY_CHECKSUM);
+        verifyCachedReplayInstallExecution(verifier);
+        verifyCachedResources(verifier);
+        verifyAllArtifactsPresent(verifier);
+    }
+
+    private void verifyAllResourcesPresent(Verifier verifier) throws VerificationException {
         verifier.verifyFilePresent(EXTRA_OUTPUT_1);
         verifier.verifyFilePresent(EXTRA_OUTPUT_2);
         verifier.verifyFilePresent(EXTRA_OUTPUT_3);
         verifier.verifyFilePresent(EXTRA_OUTPUT_4);
         verifier.verifyFilePresent(EXTRA_OUTPUT_5);
         verifier.verifyFilePresent(EXTRA_OUTPUT_6);
+    }
 
+    private void verifyCacheFilesAfterPackage(Verifier verifier) throws VerificationException, IOException {
         Path buildInfoPath = getSavedBuildInfoPath(verifier);
         Path jarCacheFile = buildInfoPath.getParent().resolve(MBUILDCACHE_INCREMENTAL_JAR);
         Path jarSourcesCacheFile = buildInfoPath.getParent().resolve(MBUILDCACHE_INCREMENTAL_SOURCES_JAR);
@@ -132,20 +209,9 @@ public class IncrementalRestoreTest {
                 Files.exists(jarSourcesCacheFile), "Not expected sources artifact saved in build cache.");
         Assertions.assertFalse(
                 Files.exists(jarJavadocCacheFile), "Not expected javadoc artifact saved in build cache.");
+    }
 
-        // Verify clean build, with the same goal should be fully restored
-        verifier.setMavenDebug(false);
-        verifier.setLogFileName("../log-clean.txt");
-        verifier.executeGoal("clean");
-        verifier.verifyFileNotPresent(GENERATED_JAR);
-
-        verifier.setLogFileName("../log-package-2.txt");
-        verifier.executeGoal("package");
-        verifier.verifyTextInLog(
-                FOUND_CACHED_BUILD_RESTORING_ORG_APACHE_MAVEN_CACHING_TEST_MBUILDCACHE_INCREMENTAL_FROM_CACHE_BY_CHECKSUM);
-        verifier.verifyTextInLog(
-                "Found cached build, restoring org.apache.maven.caching.test:mbuildcache-incremental from cache by checksum");
-        verifier.verifyErrorFreeLog();
+    private void verifyCachedPackageExecution(Verifier verifier) throws VerificationException {
         verifier.verifyTextInLog(SKIPPING_PLUGIN_EXECUTION_CACHED_RESOURCES_RESOURCES);
         verifier.verifyTextInLog(SKIPPING_PLUGIN_EXECUTION_CACHED_COMPILER_COMPILE);
         verifier.verifyTextInLog(SKIPPING_PLUGIN_EXECUTION_CACHED_RESOURCES_TEST_RESOURCES);
@@ -154,28 +220,18 @@ public class IncrementalRestoreTest {
         verifier.verifyTextInLog(SKIPPING_PLUGIN_EXECUTION_CACHED_JAR_JAR);
         verifier.verifyTextInLog(SKIPPING_PLUGIN_EXECUTION_CACHED_RESOURCES_COPY);
         verifier.verifyFilePresent(GENERATED_JAR);
-        // 2nd build with cache : only cached extra resources are present in the target folder
+    }
+
+    private void verifyCachedResources(Verifier verifier) throws VerificationException {
         verifier.verifyFilePresent(EXTRA_OUTPUT_1);
         verifier.verifyFilePresent(EXTRA_OUTPUT_2);
         verifier.verifyFileNotPresent(EXTRA_OUTPUT_3);
         verifier.verifyFileNotPresent(EXTRA_OUTPUT_4);
         verifier.verifyFileNotPresent(EXTRA_OUTPUT_5);
         verifier.verifyFilePresent(EXTRA_OUTPUT_6);
-        Assertions.assertTrue(Files.exists(jarCacheFile), "Expected artifact saved in build cache.");
+    }
 
-        // Next step : verify
-        verifier.setMavenDebug(false);
-        verifier.setLogFileName("../log-clean.txt");
-        verifier.executeGoal("clean");
-        verifier.verifyFileNotPresent(GENERATED_JAR);
-
-        verifier.setLogFileName("../log-verify.txt");
-        verifier.executeGoal("verify");
-        verifier.verifyTextInLog(
-                FOUND_CACHED_BUILD_RESTORING_ORG_APACHE_MAVEN_CACHING_TEST_MBUILDCACHE_INCREMENTAL_FROM_CACHE_BY_CHECKSUM);
-        verifier.verifyTextInLog(
-                "Project org.apache.maven.caching.test:mbuildcache-incremental restored partially. Highest cached goal: package, requested: verify");
-        verifier.verifyErrorFreeLog();
+    private void verifyCachedVerifyExecution(Verifier verifier) throws VerificationException {
         verifier.verifyTextInLog(SKIPPING_PLUGIN_EXECUTION_CACHED_RESOURCES_RESOURCES);
         verifier.verifyTextInLog(SKIPPING_PLUGIN_EXECUTION_CACHED_COMPILER_COMPILE);
         verifier.verifyTextInLog(SKIPPING_PLUGIN_EXECUTION_CACHED_RESOURCES_TEST_RESOURCES);
@@ -187,26 +243,9 @@ public class IncrementalRestoreTest {
         verifier.verifyTextInLog(VERIFY_DEFAULT_MBUILDCACHE_INCREMENTAL);
         verifier.verifyTextInLog(SAVED_BUILD_TO_LOCAL_FILE);
         verifier.verifyFilePresent(GENERATED_JAR);
-        // only cached extra resources are present in the target folder
-        verifier.verifyFilePresent(EXTRA_OUTPUT_1);
-        verifier.verifyFilePresent(EXTRA_OUTPUT_2);
-        verifier.verifyFileNotPresent(EXTRA_OUTPUT_3);
-        verifier.verifyFileNotPresent(EXTRA_OUTPUT_4);
-        verifier.verifyFileNotPresent(EXTRA_OUTPUT_5);
-        verifier.verifyFilePresent(EXTRA_OUTPUT_6);
-        Assertions.assertTrue(Files.exists(jarCacheFile), "Expected artifact saved in build cache.");
+    }
 
-        // Install with clean build, with a higher goal should restore cached mojo executions and apply increments
-        verifier.setMavenDebug(false);
-        verifier.setLogFileName("../log-clean.txt");
-        verifier.executeGoal("clean");
-        verifier.verifyFileNotPresent(GENERATED_JAR);
-
-        verifier.setLogFileName("../log-install.txt");
-        verifier.executeGoal("install");
-        verifier.verifyErrorFreeLog();
-        verifier.verifyTextInLog(
-                "Project org.apache.maven.caching.test:mbuildcache-incremental restored partially. Highest cached goal: verify, requested: install");
+    private void verifyCachedInstallExecution(Verifier verifier) throws VerificationException {
         verifier.verifyTextInLog(SKIPPING_PLUGIN_EXECUTION_CACHED_RESOURCES_RESOURCES);
         verifier.verifyTextInLog(SKIPPING_PLUGIN_EXECUTION_CACHED_COMPILER_COMPILE);
         verifier.verifyTextInLog(SKIPPING_PLUGIN_EXECUTION_CACHED_RESOURCES_TEST_RESOURCES);
@@ -229,27 +268,9 @@ public class IncrementalRestoreTest {
                 "Installing " + verifier.getBasedir() + File.separatorChar + EXTRA_OUTPUT_1 + " to ";
         verifier.verifyTextInLog(installToLocalRepoString);
         verifier.verifyTextInLog(SAVED_BUILD_TO_LOCAL_FILE);
-        verifier.verifyFilePresent(GENERATED_JAR);
-        // only cached extra resources are present in the target folder
-        verifier.verifyFilePresent(EXTRA_OUTPUT_1);
-        verifier.verifyFilePresent(EXTRA_OUTPUT_2);
-        verifier.verifyFileNotPresent(EXTRA_OUTPUT_3);
-        verifier.verifyFileNotPresent(EXTRA_OUTPUT_4);
-        verifier.verifyFileNotPresent(EXTRA_OUTPUT_5);
-        verifier.verifyFilePresent(EXTRA_OUTPUT_6);
-        Assertions.assertTrue(Files.exists(jarCacheFile), "Expected artifact saved in build cache.");
+    }
 
-        // Deploy with clean build, with a higher goal should restore cached mojo executions and apply increments
-        verifier.setMavenDebug(false);
-        verifier.setLogFileName("../log-clean.txt");
-        verifier.executeGoal("clean");
-        verifier.verifyFileNotPresent(GENERATED_JAR);
-
-        verifier.setLogFileName("../log-deploy.txt");
-        verifier.executeGoal("deploy");
-        verifier.verifyErrorFreeLog();
-        verifier.verifyTextInLog(
-                "Project org.apache.maven.caching.test:mbuildcache-incremental restored partially. Highest cached goal: install, requested: deploy");
+    private void verifyCachedDeployExecution(Verifier verifier) throws VerificationException {
         verifier.verifyTextInLog(SKIPPING_PLUGIN_EXECUTION_CACHED_RESOURCES_RESOURCES);
         verifier.verifyTextInLog(SKIPPING_PLUGIN_EXECUTION_CACHED_COMPILER_COMPILE);
         verifier.verifyTextInLog(SKIPPING_PLUGIN_EXECUTION_CACHED_RESOURCES_TEST_RESOURCES);
@@ -272,26 +293,15 @@ public class IncrementalRestoreTest {
         verifier.verifyTextInLog(DEPLOY_DEFAULT_DEPLOY_MBUILDCACHE_INCREMENTAL);
         verifier.verifyTextInLog("Using alternate deployment repository local::file:./target/staging");
         verifier.verifyTextInLog(SAVED_BUILD_TO_LOCAL_FILE);
+    }
+
+    private void verifyAllArtifactsPresent(Verifier verifier) throws VerificationException {
         verifier.verifyFilePresent(GENERATED_JAR);
         verifier.verifyFilePresent(GENERATED_SOURCES_JAR);
         verifier.verifyFilePresent(GENERATED_JAVADOC_JAR);
-        // only cached extra resources are present in the target folder
-        verifier.verifyFilePresent(EXTRA_OUTPUT_1);
-        verifier.verifyFilePresent(EXTRA_OUTPUT_2);
-        verifier.verifyFileNotPresent(EXTRA_OUTPUT_3);
-        verifier.verifyFileNotPresent(EXTRA_OUTPUT_4);
-        verifier.verifyFileNotPresent(EXTRA_OUTPUT_5);
-        verifier.verifyFilePresent(EXTRA_OUTPUT_6);
-        Assertions.assertTrue(Files.exists(jarCacheFile), "Expected artifact saved in build cache.");
-        Assertions.assertTrue(Files.exists(jarSourcesCacheFile), "Expected sources artifact saved in build cache.");
-        Assertions.assertTrue(Files.exists(jarJavadocCacheFile), "Expected javadoc artifact saved in build cache.");
+    }
 
-        // Replay install with clean build, with a lower goal should only restore cached mojo executions
-        verifier.setLogFileName("../log-install-replay.txt");
-        verifier.executeGoal("install");
-        verifier.verifyErrorFreeLog();
-        verifier.verifyTextInLog(
-                FOUND_CACHED_BUILD_RESTORING_ORG_APACHE_MAVEN_CACHING_TEST_MBUILDCACHE_INCREMENTAL_FROM_CACHE_BY_CHECKSUM);
+    private void verifyCachedReplayInstallExecution(Verifier verifier) throws VerificationException {
         verifier.verifyTextInLog(SKIPPING_PLUGIN_EXECUTION_CACHED_RESOURCES_RESOURCES);
         verifier.verifyTextInLog(SKIPPING_PLUGIN_EXECUTION_CACHED_COMPILER_COMPILE);
         verifier.verifyTextInLog(SKIPPING_PLUGIN_EXECUTION_CACHED_RESOURCES_TEST_RESOURCES);
@@ -312,21 +322,16 @@ public class IncrementalRestoreTest {
         verifyNoTextInLog(verifier, INTEGRATION_TEST_DEFAULT_MBUILDCACHE_INCREMENTAL);
         verifyNoTextInLog(verifier, VERIFY_DEFAULT_MBUILDCACHE_INCREMENTAL);
         verifyNoTextInLog(verifier, INSTALL_DEFAULT_INSTALL_MBUILDCACHE_INCREMENTAL);
-        verifyNoTextInLog(verifier, installToLocalRepoString);
+        verifyNoTextInLog(
+                verifier, "Installing " + verifier.getBasedir() + File.separatorChar + EXTRA_OUTPUT_1 + " to ");
         verifyNoTextInLog(verifier, SAVED_BUILD_TO_LOCAL_FILE, "Expected successful build cache restore.");
-        verifier.verifyFilePresent(GENERATED_JAR);
-        verifier.verifyFilePresent(GENERATED_SOURCES_JAR);
-        verifier.verifyFilePresent(GENERATED_JAVADOC_JAR);
-        // only cached extra resources are present in the target folder
-        verifier.verifyFilePresent(EXTRA_OUTPUT_1);
-        verifier.verifyFilePresent(EXTRA_OUTPUT_2);
-        verifier.verifyFileNotPresent(EXTRA_OUTPUT_3);
-        verifier.verifyFileNotPresent(EXTRA_OUTPUT_4);
-        verifier.verifyFileNotPresent(EXTRA_OUTPUT_5);
-        verifier.verifyFilePresent(EXTRA_OUTPUT_6);
-        Assertions.assertTrue(Files.exists(jarCacheFile), "Expected artifact saved in build cache.");
-        Assertions.assertTrue(Files.exists(jarSourcesCacheFile), "Expected sources artifact saved in build cache.");
-        Assertions.assertTrue(Files.exists(jarJavadocCacheFile), "Expected javadoc artifact saved in build cache.");
+    }
+
+    private void cleanAndExecuteGoal(Verifier verifier, String logFileName, String goal) throws VerificationException {
+        verifier.setMavenDebug(false);
+        verifier.setLogFileName(logFileName);
+        verifier.executeGoal(goal);
+        verifier.verifyFileNotPresent(GENERATED_JAR);
     }
 
     private static void verifyNoTextInLog(Verifier verifier, String text, String message) throws VerificationException {
